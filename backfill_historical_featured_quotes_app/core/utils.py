@@ -21,6 +21,13 @@ PARAMS = {
     "formatversion": "2"
 }
 
+# Headers to identify the client and avoid 403 errors
+API_HEADERS = {
+    "User-Agent": "QuoteOfTheDayBot/1.0 (https://github.com/your-repo; contact@example.com)",
+    "Accept": "application/json",
+    "Accept-Language": "en-US,en;q=0.9"
+}
+
 def load_quotes_config() -> Dict:
     """Load the quotes configuration from JSON file."""
     try:
@@ -38,6 +45,125 @@ def is_valid_url(url: str) -> bool:
     except Exception:
         return False
 
+def extract_quotes_from_api_response(api_response: Dict) -> List[Dict[str, str]] | None:
+    """
+    Extract quotes directly from a MediaWiki API response.
+    
+    This function takes the full API response dictionary and extracts quotes from it.
+    It automatically determines the year from the page title and selects the appropriate parser.
+    
+    Arguments:
+        api_response (Dict): The full MediaWiki API response dictionary with structure:
+            {
+                "parse": {
+                    "title": str,  # e.g., "Wikiquote:Quote of the day/November 2007"
+                    "pageid": int,
+                    "text": str    # HTML content containing quotes
+                }
+            }
+    
+    Returns:
+        Optional[List[Dict[str, str]]]: List of dictionaries containing quote information with the structure:
+            {
+                "featured_date": str,  # Format: YYYY-MM-DD
+                "quote": str | None,   # None if quote is missing
+                "author": str | None   # None if author is missing
+            }
+        Returns None if an error occurs during processing.
+    """
+    try:
+        # Validate API response structure
+        if 'parse' not in api_response:
+            logger.error("API response does not contain 'parse' field")
+            return None
+        
+        parse_data = api_response['parse']
+        
+        if 'text' not in parse_data:
+            logger.error("API response does not contain 'parse.text' field")
+            return None
+        
+        # Extract HTML content
+        html_content = parse_data['text']
+        
+        # Extract year from title (e.g., "Wikiquote:Quote of the day/November 2007")
+        year = None
+        if 'title' in parse_data:
+            title = parse_data['title']
+            # Try to extract year from title
+            year_match = re.search(r'(\d{4})', title)
+            if year_match:
+                year = year_match.group(1)
+            else:
+                # If no year in title, try to extract from month name pattern
+                # For November 2007 format, we need to parse differently
+                month_year_match = re.search(r'/(\w+)\s+(\d{4})', title)
+                if month_year_match:
+                    year = month_year_match.group(2)
+        
+        # If we still don't have a year, try to infer from the HTML content
+        if not year:
+            # Look for year patterns in the HTML
+            year_match = re.search(r'(\d{4})', html_content)
+            if year_match:
+                year = year_match.group(1)
+            else:
+                logger.warning("Could not determine year from API response, defaulting to 2007")
+                year = "2007"  # Default fallback
+        
+        logger.info(f"Extracting quotes for year: {year}")
+        
+        # Determine which parser to use based on year
+        parser_type = "old"  # Default to old parser
+        
+        try:
+            int_year = int(year)
+            # Extract month name from title if available
+            month_name = None
+            if 'title' in parse_data:
+                title_lower = parse_data['title'].lower()
+                months = ['january', 'february', 'march', 'april', 'may', 'june',
+                         'july', 'august', 'september', 'october', 'november', 'december']
+                for month in months:
+                    if month in title_lower:
+                        month_name = month
+                        break
+            
+            # Use the appropriate parser based on year and month
+            if int_year > 2012:
+                # For years after 2012, use April 2012 parser (most advanced)
+                parser_type = "april_2012"
+            elif int_year == 2012:
+                if month_name == "january":
+                    # January 2012 uses the old format
+                    parser_type = "old"
+                elif month_name in ["february", "march"]:
+                    # February and March 2012 use the Feb 2012 format
+                    parser_type = "feb_2012"
+                else:
+                    # April 2012 and later months in 2012 use the April 2012 format
+                    parser_type = "april_2012"
+        except ValueError:
+            # If we can't parse the year as an int, use the old parser
+            parser_type = "old"
+        
+        logger.info(f"Using {parser_type} parser for extraction")
+        
+        # Parse the quote data using the appropriate function
+        if parser_type == "april_2012":
+            quote_data = parse_monthly_quote_data_April2012_and_later(html_content, year)
+        elif parser_type == "feb_2012":
+            quote_data = parse_monthly_quote_data_Feb2012_and_later(html_content, year)
+        else:
+            quote_data = parse_monthly_quote_data(html_content, year)
+        
+        return quote_data
+        
+    except Exception as e:
+        logger.error(f"Error extracting quotes from API response: {str(e)}")
+        return None
+
+
 def check_url_accessibility_and_get_quote_data(url: str) -> Dict:
     """Check if a URL is accessible and fetch quote data from Wikiquote API."""
     try:
@@ -50,9 +176,29 @@ def check_url_accessibility_and_get_quote_data(url: str) -> Dict:
         # set page to path
         PARAMS["page"] = path
         
-        # get quote data from api
-        response = requests.get(QOTD_API, params=PARAMS, timeout=settings.TIMEOUT_SECONDS)
-        data = response.json()
+        # get quote data from api with proper headers to avoid 403 errors
+        response = requests.get(QOTD_API, params=PARAMS, headers=API_HEADERS, timeout=settings.TIMEOUT_SECONDS)
+        
+        # Check if the response is successful
+        if response.status_code != 200:
+            logger.error(f"API returned status code {response.status_code} for URL: {url}")
+            return {
+                "success": False,
+                "error": f"HTTP {response.status_code}",
+                "info": response.text[:200] if response.text else "No response content"
+            }
+        
+        # Check if response contains valid JSON
+        try:
+            data = response.json()
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON response: {e}")
+            logger.error(f"Response content (first 500 chars): {response.text[:500]}")
+            return {
+                "success": False,
+                "error": "Invalid JSON response",
+                "info": f"JSON decode error: {str(e)}"
+            }
 
         if 'error' in data:
             logger.error(f"API error: {data['error']['code']} - {data['error']['info']}")
