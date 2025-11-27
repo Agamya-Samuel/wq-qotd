@@ -216,6 +216,25 @@ The frontend is automatically served when you run the FastAPI application:
 5. Push to the branch (`git push origin feature/amazing-feature`)
 6. Open a Pull Request
 
+## Deployment
+
+### Local Development
+
+See the [Installation](#installation) section above for local setup instructions.
+
+### Wikimedia Toolforge Deployment
+
+This application is configured for deployment on Wikimedia Toolforge. For detailed deployment instructions, see [TOOLFORGE_DEPLOYMENT.md](TOOLFORGE_DEPLOYMENT.md).
+
+**Quick Summary:**
+1. Create a tool account on Toolforge
+2. Set up a Git repository for your tool
+3. Clone and push your code
+4. Create database on ToolsDB
+5. Deploy using Build Service: `toolforge webservice build start`
+
+The application automatically detects the Toolforge environment and uses credentials from `replica.my.cnf`.
+
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
@@ -227,3 +246,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 -   [SQLAlchemy](https://www.sqlalchemy.org/) for the ORM
 -   [Pydantic](https://pydantic-docs.helpmanual.io/) for data validation
 -   [MariaDB](https://mariadb.org/) for the database system
+-   [Wikimedia Toolforge](https://wikitech.wikimedia.org/wiki/Help:Toolforge) for hosting infrastructure
