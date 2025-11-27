@@ -1,0 +1,3 @@
+type: buildservice
+image: tools-harbor.wmcloud.org/wq-quote-of-the-day-parser/wq-quote-of-the-day-parser:latest
+mount: none
