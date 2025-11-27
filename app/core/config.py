@@ -50,7 +50,7 @@ class Settings(BaseSettings):
         DB_PASSWORD: str = os.getenv("TOOL_TOOLSDB_PASSWORD", _toolforge_password)
         # Database name format on Toolforge: s12345__dbname (where s12345 is the user)
         # Get tool name from environment or use default pattern
-        DB_NAME: str = os.getenv("DB_NAME", f"{_toolforge_user}__qotd")
+        DB_NAME: str = os.getenv("DB_NAME", f"{_toolforge_user}__wq_qotd")
         DB_PORT: int = int(os.getenv("DB_PORT", "3306"))
     else:
         # Local development settings
