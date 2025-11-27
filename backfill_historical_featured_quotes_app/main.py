@@ -8,14 +8,6 @@ import json
 from app.database.models import SessionLocal
 from app.database.init_db import init_database
 
-# Dependency
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -71,28 +63,37 @@ async def process_quote_url(url: str):
         quote_data = parse_monthly_quote_data(monthly_quote_data["data"], year)
 
     if quote_data:
-        db = next(get_db())
-        
-        # Process quotes to handle missing fields
-        processed_quotes = []
-        for quote in quote_data:
-            # Ensure author field is never None (replace with empty string if missing)
-            if quote["author"] is None:
-                quote["author"] = "Unknown"
-                
-            # Ensure quote field is never None
-            if quote["quote"] is None:
-                quote["quote"] = "(No quote text available)"
-                
-            processed_quotes.append(QuoteCreate(**quote))
-        
-        if processed_quotes:
-            # print(f'quote => {processed_quotes[0].model_dump()["quote"][0:60]}... (using {parser_type} parser)')
-            print("-" * 100)
-            create_multiple_quotes(db, processed_quotes)
-            logger.info(f"Successfully processed {len(processed_quotes)} quote(s) from {url}")
-        else:
-            logger.warning(f"No quotes created from {url}")
+        # Use proper session management instead of next(get_db())
+        # This ensures the session is properly closed after use
+        db = SessionLocal()
+        try:
+            # Process quotes to handle missing fields
+            processed_quotes = []
+            for quote in quote_data:
+                # Ensure author field is never None (replace with empty string if missing)
+                if quote["author"] is None:
+                    quote["author"] = "Unknown"
+                    
+                # Ensure quote field is never None
+                if quote["quote"] is None:
+                    quote["quote"] = "(No quote text available)"
+                    
+                processed_quotes.append(QuoteCreate(**quote))
+            
+            if processed_quotes:
+                # print(f'quote => {processed_quotes[0].model_dump()["quote"][0:60]}... (using {parser_type} parser)')
+                print("-" * 100)
+                create_multiple_quotes(db, processed_quotes)
+                logger.info(f"Successfully processed {len(processed_quotes)} quote(s) from {url}")
+            else:
+                logger.warning(f"No quotes created from {url}")
+        except Exception as e:
+            # Log any errors that occur during processing
+            logger.error(f"Error processing quotes from {url}: {str(e)}")
+            db.rollback()
+        finally:
+            # Always close the database session
+            db.close()
     else:
         logger.warning(f"Failed to extract quotes from {url}")
 
