@@ -8,10 +8,19 @@ load_dotenv()
 
 def _get_toolforge_credentials():
     """
-    Read Toolforge database credentials from replica.my.cnf file.
-    This file is automatically created by Toolforge and contains credentials.
+    Read Toolforge database credentials from environment variables or replica.my.cnf file.
+    Build Service provides environment variables, while traditional webservice uses replica.my.cnf.
     Returns tuple of (user, password) or (None, None) if not on Toolforge.
     """
+    # First, check for Toolforge environment variables (available in Build Service)
+    # These are set automatically by Toolforge for Build Service deployments
+    env_user = os.getenv("TOOL_TOOLSDB_USER")
+    env_password = os.getenv("TOOL_TOOLSDB_PASSWORD")
+    
+    if env_user and env_password:
+        return env_user, env_password
+    
+    # Fall back to replica.my.cnf (for traditional webservice or bastion access)
     replica_cnf_path = Path.home() / "replica.my.cnf"
     if not replica_cnf_path.exists():
         return None, None
